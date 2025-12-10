@@ -2,6 +2,16 @@ import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import type { CrewStatus, CrewMember } from '../data/crewMock';
 import { getCrewMemberById, updateCrewMemberStatus } from '../services/crewService';
+import QRCode from 'react-qr-code';
+import {
+  type CrewDevice,
+  type DeviceStatus,
+} from '../data/crewDevicesMock';
+import {
+  getDevicesByCrewId,
+  updateDeviceStatus,
+} from '../services/crewDeviceService';
+
 
 
 type TabKey = 'resumen' | 'dispositivos' | 'accesos';
@@ -82,6 +92,38 @@ function renderLoginStatus(status: LoginCodeStatus) {
   );
 }
 
+function renderEstadoDispositivo(estado: DeviceStatus) {
+  let background = '#e5e7eb';
+  let color = '#111827';
+
+  if (estado === 'ACTIVO') {
+    background = '#dcfce7';
+    color = '#166534';
+  } else if (estado === 'SUSPENDIDO') {
+    background = '#fef3c7';
+    color = '#92400e';
+  } else if (estado === 'REVOCADO') {
+    background = '#fee2e2';
+    color = '#991b1b';
+  }
+
+  return (
+    <span
+      style={{
+        padding: '4px 8px',
+        borderRadius: 999,
+        background,
+        color,
+        fontSize: 12,
+        fontWeight: 600,
+      }}
+    >
+      {estado}
+    </span>
+  );
+}
+
+
 function generateNumericCode(length: number): string {
   let result = '';
   for (let i = 0; i < length; i++) {
@@ -115,9 +157,18 @@ function TripulanteDetailPage() {
     },
   ]);
 
+  const [tipoLoginSeleccionado, setTipoLoginSeleccionado] =
+  useState<LoginCodeType>('NUMERIC_CODE');
+
+  const [qrActual, setQrActual] = useState<string | null>(null);
+
   const [tripulante, setTripulante] = useState<CrewMember | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  const [devices, setDevices] = useState<CrewDevice[]>([]);
+  const [loadingDevices, setLoadingDevices] = useState<boolean>(false);
+
 
   const crewId = Number(id);
 
@@ -150,32 +201,109 @@ function TripulanteDetailPage() {
     loadTripulante();
   }, [crewId]);
 
+      useEffect(() => {
+      if (!Number.isFinite(crewId)) return;
+
+      async function loadDevices() {
+        try {
+          setLoadingDevices(true);
+          const data = await getDevicesByCrewId(crewId);
+          setDevices(data);
+        } catch (err) {
+          console.error('Error cargando dispositivos', err);
+        } finally {
+          setLoadingDevices(false);
+        }
+      }
+
+      loadDevices();
+    }, [crewId]);
+
+
 
 
   function handleGenerateLoginCode() {
-    const now = new Date();
-    const inTenMinutes = new Date(now.getTime() + 10 * 60 * 1000);
+  const now = new Date();
+  const inTenMinutes = new Date(now.getTime() + 10 * 60 * 1000);
 
-    const numericCode = generateNumericCode(6);
+  let code: string;
 
-    const newLoginCode: LoginCode = {
-      id: loginCodes.length + 1,
-      code: numericCode,
-      tipo: 'NUMERIC_CODE',
-      status: 'VIGENTE',
-      createdAt: now.toISOString().slice(0, 16).replace('T', ' '),
-      expiresAt: inTenMinutes.toISOString().slice(0, 16).replace('T', ' '),
-    };
-
-    setLoginCodes((prev) => [newLoginCode, ...prev]);
-
-    alert(
-      `Nuevo código generado para ${tripulante!.nombre}:\n\n` +
-        `Código: ${numericCode}\n` +
-        `Válido hasta: ${newLoginCode.expiresAt}\n\n` +
-        `Más adelante este botón llamará a la API real para generar el código y el QR.`
-    );
+  if (tipoLoginSeleccionado === 'NUMERIC_CODE') {
+    // Código numérico de 6 dígitos
+    code = generateNumericCode(6);
+  } else {
+    // Token tipo QR (string más “rara”)
+    const randomPart = generateNumericCode(6);
+    code = `QR_TOKEN_${randomPart}`;
   }
+
+  const newLoginCode: LoginCode = {
+    id: loginCodes.length + 1,
+    code,
+    tipo: tipoLoginSeleccionado,
+    status: 'VIGENTE',
+    createdAt: now.toISOString().slice(0, 16).replace('T', ' '),
+    expiresAt: inTenMinutes.toISOString().slice(0, 16).replace('T', ' '),
+  };
+
+  setLoginCodes((prev) => [newLoginCode, ...prev]);
+
+  if (tipoLoginSeleccionado === 'QR_TOKEN') {
+    setQrActual(code);
+  }
+
+  const tipoTexto =
+    tipoLoginSeleccionado === 'NUMERIC_CODE'
+      ? 'Código numérico'
+      : 'Token para QR';
+
+  alert(
+    `Nuevo ${tipoTexto} generado para ${tripulante!.nombre}:\n\n` +
+      `Código/Token: ${code}\n` +
+      `Válido hasta: ${newLoginCode.expiresAt}\n\n` +
+      `Más adelante este botón llamará a la API real para generar el código y el QR.`
+  );
+}
+
+async function handleSuspenderDevice(device: CrewDevice) {
+  try {
+    setDevices((prev) =>
+      prev.map((d) =>
+        d.id === device.id ? { ...d, estado: 'SUSPENDIDO' } : d
+      )
+    );
+
+    await updateDeviceStatus(device.id, 'SUSPENDIDO');
+  } catch (err) {
+    console.error(err);
+    alert('Ocurrió un error al suspender el dispositivo.');
+  }
+}
+
+async function handleRevocarDevice(device: CrewDevice) {
+  if (
+    !window.confirm(
+      '¿Seguro que quieres revocar este dispositivo? El tripulante deberá volver a iniciar sesión con un nuevo código/QR.'
+    )
+  ) {
+    return;
+  }
+
+  try {
+    setDevices((prev) =>
+      prev.map((d) =>
+        d.id === device.id ? { ...d, estado: 'REVOCADO' } : d
+      )
+    );
+
+    await updateDeviceStatus(device.id, 'REVOCADO');
+  } catch (err) {
+    console.error(err);
+    alert('Ocurrió un error al revocar el dispositivo.');
+  }
+}
+
+
 
     if (loading) {
     return (
@@ -220,23 +348,6 @@ function TripulanteDetailPage() {
       </div>
     );
   }
-
-
-    // Datos mock de dispositivos (por ahora quemados, luego vendrán de la API)
-  const dispositivosMock = [
-    {
-      id: 1,
-      nombre: 'Samsung A54',
-      estado: 'ACTIVO',
-      registradoEl: '2025-01-10',
-    },
-    {
-      id: 2,
-      nombre: 'Moto G Power',
-      estado: 'SUSPENDIDO',
-      registradoEl: '2025-02-05',
-    },
-  ];
 
     // Cambiar estado del tripulante (solo frontend por ahora)
     async function handleChangeEstado(newEstado: CrewStatus) {
@@ -469,51 +580,84 @@ function TripulanteDetailPage() {
                 </th>
               </tr>
             </thead>
-            <tbody>
-              {dispositivosMock.map((d) => (
-                <tr key={d.id} style={{ borderTop: '1px solid #e5e7eb' }}>
-                  <td style={{ padding: '8px 12px', fontSize: 14 }}>{d.nombre}</td>
-                  <td style={{ padding: '8px 12px', fontSize: 14 }}>{d.estado}</td>
-                  <td style={{ padding: '8px 12px', fontSize: 14 }}>{d.registradoEl}</td>
-                  <td style={{ padding: '8px 12px', textAlign: 'right' }}>
-                    <button
-                      type="button"
-                      style={{
-                        padding: '4px 8px',
-                        borderRadius: 8,
-                        border: '1px solid #d1d5db',
-                        background: 'white',
-                        cursor: 'pointer',
-                        fontSize: 12,
-                        marginRight: 8,
-                      }}
-                      onClick={() => alert('Aquí luego podrás suspender el dispositivo.')}
-                    >
-                      Suspender
-                    </button>
-                    <button
-                      type="button"
-                      style={{
-                        padding: '4px 8px',
-                        borderRadius: 8,
-                        border: '1px solid #fecaca',
-                        background: '#fee2e2',
-                        cursor: 'pointer',
-                        fontSize: 12,
-                      }}
-                      onClick={() => alert('Aquí luego podrás revocar el dispositivo.')}
-                    >
-                      Revocar
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
+                 <tbody>
+                  {loadingDevices && (
+                    <tr>
+                      <td
+                        colSpan={4}
+                        style={{
+                          padding: '8px 12px',
+                          fontSize: 14,
+                          color: '#6b7280',
+                        }}
+                      >
+                        Cargando dispositivos...
+                      </td>
+                    </tr>
+                  )}
+
+                  {!loadingDevices && devices.length === 0 && (
+                    <tr>
+                      <td
+                        colSpan={4}
+                        style={{
+                          padding: '8px 12px',
+                          fontSize: 14,
+                          color: '#6b7280',
+                        }}
+                      >
+                        Este tripulante todavía no tiene dispositivos registrados.
+                      </td>
+                    </tr>
+                  )}
+
+                  {devices.map((d) => (
+                    <tr key={d.id} style={{ borderTop: '1px solid #e5e7eb' }}>
+                      <td style={{ padding: '8px 12px', fontSize: 14 }}>{d.nombre}</td>
+                      <td style={{ padding: '8px 12px', fontSize: 14 }}>
+                        {renderEstadoDispositivo(d.estado)}
+                      </td>
+                      <td style={{ padding: '8px 12px', fontSize: 14 }}>{d.registradoEl}</td>
+                      <td style={{ padding: '8px 12px', textAlign: 'right' }}>
+                        <button
+                          type="button"
+                          style={{
+                            padding: '4px 8px',
+                            borderRadius: 8,
+                            border: '1px solid #d1d5db',
+                            background: 'white',
+                            cursor: 'pointer',
+                            fontSize: 12,
+                            marginRight: 8,
+                          }}
+                          onClick={() => handleSuspenderDevice(d)}
+                        >
+                          Suspender
+                        </button>
+                        <button
+                          type="button"
+                          style={{
+                            padding: '4px 8px',
+                            borderRadius: 8,
+                            border: '1px solid #fecaca',
+                            background: '#fee2e2',
+                            cursor: 'pointer',
+                            fontSize: 12,
+                          }}
+                          onClick={() => handleRevocarDevice(d)}
+                        >
+                          Revocar
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+
           </table>
         </div>
       )}
 
-      {activeTab === 'accesos' && (
+            {activeTab === 'accesos' && (
         <div
           style={{
             borderRadius: 12,
@@ -522,29 +666,60 @@ function TripulanteDetailPage() {
             background: 'white',
           }}
         >
-          <h2 style={{ marginTop: 0 }}>Accesos mediante código / QR</h2>
-          <p style={{ color: '#6b7280', fontSize: 14 }}>
+          <h2 style={{ marginTop: 0, marginBottom: 8 }}>Accesos mediante código / QR</h2>
+          <p style={{ color: '#6b7280', fontSize: 14, marginTop: 0 }}>
             El administrador puede generar códigos de acceso temporales para que el tripulante
             inicie sesión en la app móvil desde un nuevo dispositivo.
           </p>
 
-          <button
-            type="button"
+          {/* Selector de tipo + botón generar */}
+          <div
             style={{
-              padding: '8px 16px',
-              borderRadius: 8,
-              border: 'none',
-              background: '#2563eb',
-              color: 'white',
-              fontWeight: 600,
-              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 12,
               marginBottom: 16,
+              flexWrap: 'wrap',
             }}
-            onClick={handleGenerateLoginCode}
           >
-            Generar código / QR de acceso
-          </button>
+            <div>
+              <label style={{ fontSize: 13, marginRight: 8 }}>Tipo de acceso:</label>
+              <select
+                value={tipoLoginSeleccionado}
+                onChange={(e) =>
+                  setTipoLoginSeleccionado(e.target.value as LoginCodeType)
+                }
+                style={{
+                  padding: '6px 8px',
+                  borderRadius: 8,
+                  border: '1px solid #d1d5db',
+                  fontSize: 13,
+                }}
+              >
+                <option value="NUMERIC_CODE">Código numérico</option>
+                <option value="QR_TOKEN">Token para QR</option>
+              </select>
+            </div>
 
+            <button
+              type="button"
+              style={{
+                padding: '8px 16px',
+                borderRadius: 8,
+                border: 'none',
+                background: '#2563eb',
+                color: 'white',
+                fontWeight: 600,
+                cursor: 'pointer',
+                fontSize: 13,
+              }}
+              onClick={handleGenerateLoginCode}
+            >
+              Generar acceso
+            </button>
+          </div>
+
+          {/* Tabla de accesos */}
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead style={{ background: '#f9fafb' }}>
               <tr>
@@ -557,6 +732,9 @@ function TripulanteDetailPage() {
                 <th style={{ textAlign: 'left', padding: '8px 12px', fontSize: 14 }}>
                   Expira el
                 </th>
+                <th style={{ textAlign: 'right', padding: '8px 12px', fontSize: 14 }}>
+                  QR / Ver
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -566,16 +744,39 @@ function TripulanteDetailPage() {
                   <td style={{ padding: '8px 12px', fontSize: 14 }}>
                     {c.tipo === 'NUMERIC_CODE' ? 'Código numérico' : 'Token QR'}
                   </td>
-                  <td style={{ padding: '8px 12px', fontSize: 14 }}>{renderLoginStatus(c.status)}</td>
+                  <td style={{ padding: '8px 12px', fontSize: 14 }}>
+                    {renderLoginStatus(c.status)}
+                  </td>
                   <td style={{ padding: '8px 12px', fontSize: 14 }}>{c.createdAt}</td>
                   <td style={{ padding: '8px 12px', fontSize: 14 }}>{c.expiresAt}</td>
+                  <td style={{ padding: '8px 12px', fontSize: 14, textAlign: 'right' }}>
+                      {c.tipo === 'QR_TOKEN' ? (
+                        <button
+                          type="button"
+                          style={{
+                            padding: '4px 8px',
+                            borderRadius: 8,
+                            border: '1px solid #d1d5db',
+                            background: 'white',
+                            cursor: 'pointer',
+                            fontSize: 12,
+                          }}
+                          onClick={() => setQrActual(c.code)}
+                        >
+                          Ver QR
+                        </button>
+                      ) : (
+                        <span style={{ fontSize: 12, color: '#6b7280' }}>No aplica</span>
+                      )}
+                    </td>
+
                 </tr>
               ))}
 
               {loginCodes.length === 0 && (
                 <tr>
                   <td
-                    colSpan={5}
+                    colSpan={6}
                     style={{
                       padding: '12px 16px',
                       textAlign: 'center',
@@ -588,6 +789,66 @@ function TripulanteDetailPage() {
               )}
             </tbody>
           </table>
+
+          {/* Bloque que muestra el QR cuando hay uno seleccionado */}
+          {qrActual && (
+            <div
+              style={{
+                marginTop: 16,
+                padding: 16,
+                borderRadius: 12,
+                border: '1px solid #e5e7eb',
+                background: '#f9fafb',
+                display: 'inline-block',
+              }}
+            >
+              <h3 style={{ marginTop: 0, marginBottom: 8, fontSize: 16 }}>
+                QR de acceso para {tripulante.nombre}
+              </h3>
+              <p
+                style={{
+                  marginTop: 0,
+                  marginBottom: 8,
+                  fontSize: 13,
+                  color: '#6b7280',
+                }}
+              >
+                Escanéalo desde la app móvil de tripulantes para iniciar sesión en un nuevo
+                dispositivo. Este QR representa el token:
+                <br />
+                <span style={{ fontFamily: 'monospace' }}>{qrActual}</span>
+              </p>
+
+              <div
+                style={{
+                  padding: 12,
+                  borderRadius: 12,
+                  background: 'white',
+                  display: 'inline-block',
+                }}
+              >
+                <QRCode value={qrActual} size={160} />
+              </div>
+
+              <div style={{ marginTop: 12, textAlign: 'right' }}>
+                <button
+                  type="button"
+                  onClick={() => setQrActual(null)}
+                  style={{
+                    padding: '6px 10px',
+                    borderRadius: 8,
+                    border: '1px solid #d1d5db',
+                    background: 'white',
+                    cursor: 'pointer',
+                    fontSize: 12,
+                  }}
+                >
+                  Cerrar
+                </button>
+              </div>
+            </div>
+          )}
+
         </div>
       )}
     </div>

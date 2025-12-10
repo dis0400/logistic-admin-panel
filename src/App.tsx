@@ -5,6 +5,8 @@ import TripulantesListPage from './pages/TripulantesListPage';
 import TripulanteDetailPage from './pages/TripulanteDetailPage';
 import VuelosListPage from './pages/VuelosListPage';
 import FlightDetailPage from './pages/FlightDetailPage';
+import SyncRunsListPage from './pages/SyncRunsListPage';
+import DevicesListPage from './pages/DevicesListPage';
 
 
 
@@ -25,10 +27,12 @@ function App() {
       <Route path="/admin/vuelos" element={<VuelosListPage />} />
       <Route path="/admin/vuelos/:id" element={<FlightDetailPage />} />
 
+      <Route path="/admin/sync-runs" element={<SyncRunsListPage />} />
 
+      <Route path="/admin/dispositivos" element={<DevicesListPage />} />
+      
       {/* Redirección por defecto */}
       <Route path="*" element={<Navigate to="/admin/login" />} />
-
 
     </Routes>
   );

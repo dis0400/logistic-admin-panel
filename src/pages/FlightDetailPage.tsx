@@ -1,5 +1,5 @@
 // src/pages/FlightDetailPage.tsx
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import type { FlightAdmin, FlightStatus } from '../data/flightsMock';
 import { getFlightById } from '../services/flightService';
@@ -59,6 +59,18 @@ function FlightDetailPage() {
   const [disponibles, setDisponibles] = useState<CrewAssignment[]>(crewAvailableMock);
   const [asignados, setAsignados] = useState<CrewAssignment[]>(initialAssignedMock);
 
+    // 🔹 estados para filtros de disponibles
+  const [filtroRol, setFiltroRol] = useState<string>('TODOS');
+  const [filtroBase, setFiltroBase] = useState<string>('');
+  const [filtroNombre, setFiltroNombre] = useState<string>('');
+
+    // 🔹 Reglas simples de dotación para este vuelo (mock)
+  const requeridosPorRol = {
+    Piloto: 1,
+    Copiloto: 1,
+    TCP: 3,
+  };
+
   const flightId = Number(id);
 
   useEffect(() => {
@@ -90,6 +102,17 @@ function FlightDetailPage() {
     loadFlight();
   }, [flightId]);
 
+    // 🔹 disponibles filtrados según rol, base y nombre
+  const disponiblesFiltrados = useMemo(() => {
+    return disponibles.filter((t) => {
+      if (filtroRol !== 'TODOS' && t.rol !== filtroRol) return false;
+      if (filtroBase && !t.base.toLowerCase().includes(filtroBase.toLowerCase())) return false;
+      if (filtroNombre && !t.nombre.toLowerCase().includes(filtroNombre.toLowerCase())) return false;
+      return true;
+    });
+  }, [disponibles, filtroRol, filtroBase, filtroNombre]);
+
+
   // 🔹 funciones para mover tripulantes entre listas
   function asignarTripulante(trip: CrewAssignment) {
     setDisponibles((prev) => prev.filter((t) => t.id !== trip.id));
@@ -100,6 +123,30 @@ function FlightDetailPage() {
     setAsignados((prev) => prev.filter((t) => t.id !== trip.id));
     setDisponibles((prev) => [...prev, trip]);
   }
+
+    function handleGuardarAsignacion() {
+    const listaNombres = asignados
+      .map((t) => `- ${t.nombre} (${t.rol}, base ${t.base})`)
+      .join('\n');
+
+    alert(
+      `Simulación de guardado de asignación para el vuelo ${flight!.codigoVuelo}:\n\n` +
+        `Tripulantes asignados (${asignados.length}):\n` +
+        `${listaNombres || '- (ninguno)'}\n\n` +
+        `Más adelante este botón enviará un POST al backend, por ejemplo:\n` +
+        `POST /admin/flights/${flight!.id}/assignments\n` +
+        `con el listado de IDs de tripulantes asignados.`
+    );
+  }
+
+
+    // 🔹 Contadores de tripulación asignada por rol
+  const totalPilotos = asignados.filter((t) => t.rol === 'Piloto').length;
+  const totalCopilotos = asignados.filter((t) => t.rol === 'Copiloto').length;
+  const totalTCP = asignados.filter((t) => t.rol === 'TCP').length;
+
+  const totalAsignados = asignados.length;
+
 
   if (loading) {
     return (
@@ -149,6 +196,17 @@ function FlightDetailPage() {
   const ultimaSync = '2025-03-10 03:00';
   const proximaSync = '2025-03-10 09:00';
   const origenDatos = 'SerpAPI (Google Flights) + sistema interno de la aerolínea';
+
+    function getEstadoDotacion(actual: number, requerido: number) {
+    if (actual === requerido) {
+      return { texto: 'Completo', color: '#16a34a', background: '#dcfce7' };
+    }
+    if (actual < requerido) {
+      return { texto: 'Incompleto', color: '#b45309', background: '#fef3c7' };
+    }
+    return { texto: 'Excedido', color: '#b91c1c', background: '#fee2e2' };
+  }
+
 
   return (
     <div style={{ padding: 24 }}>
@@ -229,7 +287,153 @@ function FlightDetailPage() {
         </div>
       </section>
 
-      {/* Asignación de tripulantes */}
+            {/* Resumen de dotación de tripulación */}
+      <section
+        style={{
+          marginBottom: 16,
+          padding: 16,
+          borderRadius: 12,
+          border: '1px solid #e5e7eb',
+          background: 'white',
+        }}
+      >
+        <h2 style={{ marginTop: 0, marginBottom: 8 }}>Resumen de dotación</h2>
+        <p style={{ marginTop: 0, marginBottom: 12, color: '#6b7280', fontSize: 14 }}>
+          Aquí el administrador puede validar si el vuelo cumple con la dotación mínima de
+          tripulación definida por la aerolínea.
+        </p>
+
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+            gap: 12,
+            fontSize: 14,
+          }}
+        >
+          {/* Pilotos */}
+          {(() => {
+            const estado = getEstadoDotacion(totalPilotos, requeridosPorRol.Piloto);
+            return (
+              <div
+                style={{
+                  padding: 12,
+                  borderRadius: 12,
+                  border: '1px solid #e5e7eb',
+                  background: '#f9fafb',
+                }}
+              >
+                <p style={{ margin: 0, color: '#6b7280' }}>Pilotos</p>
+                <p style={{ margin: 0, fontWeight: 600 }}>
+                  {totalPilotos} / {requeridosPorRol.Piloto}
+                </p>
+                <span
+                  style={{
+                    display: 'inline-block',
+                    marginTop: 6,
+                    padding: '2px 8px',
+                    borderRadius: 999,
+                    background: estado.background,
+                    color: estado.color,
+                    fontSize: 12,
+                    fontWeight: 600,
+                  }}
+                >
+                  {estado.texto}
+                </span>
+              </div>
+            );
+          })()}
+
+          {/* Copilotos */}
+          {(() => {
+            const estado = getEstadoDotacion(totalCopilotos, requeridosPorRol.Copiloto);
+            return (
+              <div
+                style={{
+                  padding: 12,
+                  borderRadius: 12,
+                  border: '1px solid #e5e7eb',
+                  background: '#f9fafb',
+                }}
+              >
+                <p style={{ margin: 0, color: '#6b7280' }}>Copilotos</p>
+                <p style={{ margin: 0, fontWeight: 600 }}>
+                  {totalCopilotos} / {requeridosPorRol.Copiloto}
+                </p>
+                <span
+                  style={{
+                    display: 'inline-block',
+                    marginTop: 6,
+                    padding: '2px 8px',
+                    borderRadius: 999,
+                    background: estado.background,
+                    color: estado.color,
+                    fontSize: 12,
+                    fontWeight: 600,
+                  }}
+                >
+                  {estado.texto}
+                </span>
+              </div>
+            );
+          })()}
+
+          {/* TCP */}
+          {(() => {
+            const estado = getEstadoDotacion(totalTCP, requeridosPorRol.TCP);
+            return (
+              <div
+                style={{
+                  padding: 12,
+                  borderRadius: 12,
+                  border: '1px solid #e5e7eb',
+                  background: '#f9fafb',
+                }}
+              >
+                <p style={{ margin: 0, color: '#6b7280' }}>TCP</p>
+                <p style={{ margin: 0, fontWeight: 600 }}>
+                  {totalTCP} / {requeridosPorRol.TCP}
+                </p>
+                <span
+                  style={{
+                    display: 'inline-block',
+                    marginTop: 6,
+                    padding: '2px 8px',
+                    borderRadius: 999,
+                    background: estado.background,
+                    color: estado.color,
+                    fontSize: 12,
+                    fontWeight: 600,
+                  }}
+                >
+                  {estado.texto}
+                </span>
+              </div>
+            );
+          })()}
+
+          {/* Total */}
+          <div
+            style={{
+              padding: 12,
+              borderRadius: 12,
+              border: '1px solid #e5e7eb',
+              background: '#f9fafb',
+            }}
+          >
+            <p style={{ margin: 0, color: '#6b7280' }}>Total asignados</p>
+            <p style={{ margin: 0, fontWeight: 600 }}>{totalAsignados} tripulantes</p>
+            <p style={{ margin: 0, marginTop: 6, fontSize: 12, color: '#6b7280' }}>
+              Más adelante, aquí se podrá validar contra las normas de seguridad y configuración
+              del avión.
+            </p>
+          </div>
+        </div>
+      </section>
+
+
+            {/* Asignación de tripulantes */}
       <section
         style={{
           marginBottom: 16,
@@ -263,11 +467,103 @@ function FlightDetailPage() {
             }}
           >
             <h3 style={{ marginTop: 0 }}>Disponibles</h3>
-            {disponibles.length === 0 && (
-              <p style={{ color: '#6b7280' }}>No hay tripulantes disponibles.</p>
+
+            {/* Filtros */}
+            <div
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 8,
+                marginBottom: 8,
+                fontSize: 13,
+              }}
+            >
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <div style={{ minWidth: 120 }}>
+                  <label style={{ display: 'block', marginBottom: 4 }}>Rol</label>
+                  <select
+                    value={filtroRol}
+                    onChange={(e) => setFiltroRol(e.target.value)}
+                    style={{
+                      width: '100%',
+                      padding: '4px 6px',
+                      borderRadius: 6,
+                      border: '1px solid #d1d5db',
+                      fontSize: 13,
+                    }}
+                  >
+                    <option value="TODOS">Todos</option>
+                    <option value="Piloto">Piloto</option>
+                    <option value="Copiloto">Copiloto</option>
+                    <option value="TCP">TCP</option>
+                  </select>
+                </div>
+
+                <div style={{ minWidth: 120 }}>
+                  <label style={{ display: 'block', marginBottom: 4 }}>Base</label>
+                  <input
+                    type="text"
+                    placeholder="LPB, CBB..."
+                    value={filtroBase}
+                    onChange={(e) => setFiltroBase(e.target.value)}
+                    style={{
+                      width: '100%',
+                      padding: '4px 6px',
+                      borderRadius: 6,
+                      border: '1px solid #d1d5db',
+                      fontSize: 13,
+                    }}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label style={{ display: 'block', marginBottom: 4 }}>Nombre</label>
+                <input
+                  type="text"
+                  placeholder="Buscar por nombre..."
+                  value={filtroNombre}
+                  onChange={(e) => setFiltroNombre(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '4px 6px',
+                    borderRadius: 6,
+                    border: '1px solid #d1d5db',
+                    fontSize: 13,
+                  }}
+                />
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setFiltroRol('TODOS');
+                  setFiltroBase('');
+                  setFiltroNombre('');
+                }}
+                style={{
+                  alignSelf: 'flex-start',
+                  padding: '4px 8px',
+                  borderRadius: 6,
+                  border: '1px solid #d1d5db',
+                  background: 'white',
+                  cursor: 'pointer',
+                  fontSize: 12,
+                  marginTop: 4,
+                }}
+              >
+                Limpiar filtros
+              </button>
+            </div>
+
+            {/* Lista filtrada */}
+            {disponiblesFiltrados.length === 0 && (
+              <p style={{ color: '#6b7280' }}>
+                No hay tripulantes disponibles con los filtros actuales.
+              </p>
             )}
 
-            {disponibles.map((t) => (
+            {disponiblesFiltrados.map((t) => (
               <div
                 key={t.id}
                 style={{
@@ -298,7 +594,7 @@ function FlightDetailPage() {
                 </button>
               </div>
             ))}
-          </div>
+          </div> {/* 👈 cierre columna izquierda */}
 
           {/* Derecha: asignados */}
           <div
@@ -348,8 +644,54 @@ function FlightDetailPage() {
               </div>
             ))}
           </div>
+        </div> 
+
+                {/* Barra de acciones de guardado */}
+        <div
+          style={{
+            marginTop: 16,
+            paddingTop: 12,
+            borderTop: '1px solid #e5e7eb',
+            fontSize: 13,
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            gap: 12,
+            flexWrap: 'wrap',
+          }}
+        >
+          <p
+            style={{
+              margin: 0,
+              color: '#6b7280',
+              maxWidth: 480,
+            }}
+          >
+            Al guardar, esta asignación se enviará al backend y quedará registrada como la
+            tripulación oficial de este vuelo. Más adelante también podremos auditar quién hizo
+            el cambio y en qué momento.
+          </p>
+
+          <button
+            type="button"
+            onClick={handleGuardarAsignacion}
+            style={{
+              padding: '8px 16px',
+              borderRadius: 8,
+              border: 'none',
+              background: '#16a34a',
+              color: 'white',
+              fontWeight: 600,
+              cursor: 'pointer',
+              alignSelf: 'flex-start',
+            }}
+          >
+            Guardar asignación (simulado)
+          </button>
         </div>
+
       </section>
+
 
       {/* Sincronización con sistema externo */}
       <section
