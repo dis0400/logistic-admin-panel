@@ -1,11 +1,12 @@
 // src/services/syncRunsService.ts
-import { syncRunsMock, type SyncRun } from '../data/syncRunsMock';
+import { syncRunsMock, type SyncRunRow } from '../data/syncRunsMock';
 
-export async function getSyncRuns(): Promise<SyncRun[]> {
-  // Simulamos una llamada HTTP con Promise
-  return new Promise((resolve) => {
-    setTimeout(() => {
-      resolve(syncRunsMock);
-    }, 300); // pequeño delay para ver "cargando..."
-  });
+export async function getSyncRuns(): Promise<SyncRunRow[]> {
+  await new Promise((res) => setTimeout(res, 300));
+  return syncRunsMock;
+}
+
+// Para más adelante, cuando tengas backend real:
+export async function registerSyncRun() {
+  alert('Aquí se registrará una nueva ejecución del CRON (mock).');
 }

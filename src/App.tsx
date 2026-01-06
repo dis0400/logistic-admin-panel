@@ -7,33 +7,37 @@ import VuelosListPage from './pages/VuelosListPage';
 import FlightDetailPage from './pages/FlightDetailPage';
 import SyncRunsListPage from './pages/SyncRunsListPage';
 import DevicesListPage from './pages/DevicesListPage';
-
-
+import AdminLayout from './layouts/AdminLayout';
 
 function App() {
   return (
     <Routes>
-      {/* Login de admin */}
+      {/* Login de admin (sin layout) */}
       <Route path="/admin/login" element={<LoginPage />} />
 
-      {/* Dashboard principal */}
-      <Route path="/admin" element={<DashboardPage />} />
+      {/* Todo lo demás usa el layout con sidebar */}
+      <Route path="/admin" element={<AdminLayout />}>
+        {/* Primera pantalla: Dashboard */}
+        <Route index element={<DashboardPage />} />
 
-      {/* Lista de tripulantes */}
-      <Route path="/admin/tripulantes" element={<TripulantesListPage />} />
+        {/* Gestión de tripulantes */}
+        <Route path="tripulantes" element={<TripulantesListPage />} />
+        <Route path="tripulantes/:id" element={<TripulanteDetailPage />} />
 
-      <Route path="/admin/tripulantes/:id" element={<TripulanteDetailPage />} />
+        {/* Gestión de vuelos */}
+        <Route path="vuelos" element={<VuelosListPage />} />
+        <Route path="vuelos/:id" element={<FlightDetailPage />} />
 
-      <Route path="/admin/vuelos" element={<VuelosListPage />} />
-      <Route path="/admin/vuelos/:id" element={<FlightDetailPage />} />
+        {/* Sincronización (CRON) */}
+        <Route path="sync-runs" element={<SyncRunsListPage />} />
+        <Route path="sync" element={<SyncRunsListPage />} />
 
-      <Route path="/admin/sync-runs" element={<SyncRunsListPage />} />
+        {/* (opcional) listado de dispositivos */}
+        <Route path="dispositivos" element={<DevicesListPage />} />
+      </Route>
 
-      <Route path="/admin/dispositivos" element={<DevicesListPage />} />
-      
       {/* Redirección por defecto */}
       <Route path="*" element={<Navigate to="/admin/login" />} />
-
     </Routes>
   );
 }

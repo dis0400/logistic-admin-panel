@@ -1,7 +1,7 @@
 // src/pages/VuelosListPage.tsx
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import type { FlightAdmin, FlightStatus } from '../data/flightsMock';
+import type { FlightRow, FlightStatus, } from '../data/flightsMock';
 import { getFlights } from '../services/flightService';
 
 type FiltroEstado = FlightStatus | 'TODOS';
@@ -94,7 +94,7 @@ function formatRuta(origen: string, destino: string) {
 function VuelosListPage() {
   const navigate = useNavigate();
 
-  const [vuelos, setVuelos] = useState<FlightAdmin[]>([]);
+  const [vuelos, setVuelos] = useState<FlightRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -143,7 +143,7 @@ function VuelosListPage() {
   }, [vuelos, filtroFecha, filtroOrigen, filtroDestino, filtroEstado, filtroDotacion]);
 
   return (
-    <div style={{ padding: 24 }}>
+    <div className="page-container">
       <header
         style={{
           display: 'flex',

@@ -1,18 +1,13 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import type { CrewStatus, CrewMember } from '../data/crewMock';
-import { getCrewMemberById, updateCrewMemberStatus } from '../services/crewService';
 import QRCode from 'react-qr-code';
-import {
-  type CrewDevice,
-  type DeviceStatus,
-} from '../data/crewDevicesMock';
-import {
-  getDevicesByCrewId,
-  updateDeviceStatus,
-} from '../services/crewDeviceService';
+import { Canvg } from 'canvg';
 
+import type { CrewMember, CrewStatus } from '../data/crewMock';
+import { getCrewMemberById, updateCrewMemberStatus } from '../services/crewService';
 
+import type { CrewDevice, DeviceStatus } from '../data/crewDevicesMock';
+import { getDevicesByCrewId, updateDeviceStatus } from '../services/crewDeviceService';
 
 type TabKey = 'resumen' | 'dispositivos' | 'accesos';
 
@@ -27,7 +22,6 @@ type LoginCode = {
   createdAt: string;
   expiresAt: string;
 };
-
 
 function renderEstado(estado: CrewStatus) {
   let background = '#e5e7eb';
@@ -123,7 +117,6 @@ function renderEstadoDispositivo(estado: DeviceStatus) {
   );
 }
 
-
 function generateNumericCode(length: number): string {
   let result = '';
   for (let i = 0; i < length; i++) {
@@ -135,6 +128,8 @@ function generateNumericCode(length: number): string {
 function TripulanteDetailPage() {
   const navigate = useNavigate();
   const { id } = useParams();
+
+  const crewId = Number(id);
 
   const [activeTab, setActiveTab] = useState<TabKey>('resumen');
 
@@ -158,21 +153,20 @@ function TripulanteDetailPage() {
   ]);
 
   const [tipoLoginSeleccionado, setTipoLoginSeleccionado] =
-  useState<LoginCodeType>('NUMERIC_CODE');
+    useState<LoginCodeType>('NUMERIC_CODE');
 
   const [qrActual, setQrActual] = useState<string | null>(null);
+  const qrContainerRef = useRef<HTMLDivElement | null>(null);
 
   const [tripulante, setTripulante] = useState<CrewMember | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const [devices, setDevices] = useState<CrewDevice[]>([]);
-  const [loadingDevices, setLoadingDevices] = useState<boolean>(false);
+  const [loadingDevices, setLoadingDevices] = useState(false);
 
-
-  const crewId = Number(id);
-
-    useEffect(() => {
+  // ✅ Cargar tripulante
+  useEffect(() => {
     if (!Number.isFinite(crewId)) {
       setError('ID de tripulante inválido.');
       setLoading(false);
@@ -201,111 +195,154 @@ function TripulanteDetailPage() {
     loadTripulante();
   }, [crewId]);
 
-      useEffect(() => {
-      if (!Number.isFinite(crewId)) return;
+  // ✅ Cargar dispositivos
+  useEffect(() => {
+    if (!Number.isFinite(crewId)) return;
 
-      async function loadDevices() {
-        try {
-          setLoadingDevices(true);
-          const data = await getDevicesByCrewId(crewId);
-          setDevices(data);
-        } catch (err) {
-          console.error('Error cargando dispositivos', err);
-        } finally {
-          setLoadingDevices(false);
-        }
+    async function loadDevices() {
+      try {
+        setLoadingDevices(true);
+        const data = await getDevicesByCrewId(crewId);
+        setDevices(data);
+      } catch (err) {
+        console.error('Error cargando dispositivos', err);
+      } finally {
+        setLoadingDevices(false);
+      }
+    }
+
+    loadDevices();
+  }, [crewId]);
+
+  // ✅ Descargar QR como PNG
+  async function handleDownloadQrPng() {
+    try {
+      if (!qrActual) return;
+
+      const container = qrContainerRef.current;
+      if (!container) return;
+
+      const svg = container.querySelector('svg');
+      if (!svg) {
+        alert('No se encontró el QR para descargar.');
+        return;
       }
 
-      loadDevices();
-    }, [crewId]);
+      const serializer = new XMLSerializer();
+      const svgString = serializer.serializeToString(svg);
 
+      const size = 512;
+      const canvas = document.createElement('canvas');
+      canvas.width = size;
+      canvas.height = size;
 
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
 
+      // fondo blanco
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, size, size);
+
+      const v = Canvg.fromString(ctx, svgString);
+      await v.render();
+
+      const pngUrl = canvas.toDataURL('image/png');
+
+      const a = document.createElement('a');
+      a.href = pngUrl;
+      a.download = `QR_${tripulante?.codigo ?? 'tripulante'}_${Date.now()}.png`;
+      a.click();
+    } catch (err) {
+      console.error(err);
+      alert('No se pudo descargar el QR.');
+    }
+  }
 
   function handleGenerateLoginCode() {
-  const now = new Date();
-  const inTenMinutes = new Date(now.getTime() + 10 * 60 * 1000);
+    const now = new Date();
+    const inTenMinutes = new Date(now.getTime() + 10 * 60 * 1000);
 
-  let code: string;
+    let code: string;
 
-  if (tipoLoginSeleccionado === 'NUMERIC_CODE') {
-    // Código numérico de 6 dígitos
-    code = generateNumericCode(6);
-  } else {
-    // Token tipo QR (string más “rara”)
-    const randomPart = generateNumericCode(6);
-    code = `QR_TOKEN_${randomPart}`;
-  }
+    if (tipoLoginSeleccionado === 'NUMERIC_CODE') {
+      code = generateNumericCode(6);
+    } else {
+      const randomPart = generateNumericCode(6);
+      code = `QR_TOKEN_${randomPart}`;
+    }
 
-  const newLoginCode: LoginCode = {
-    id: loginCodes.length + 1,
-    code,
-    tipo: tipoLoginSeleccionado,
-    status: 'VIGENTE',
-    createdAt: now.toISOString().slice(0, 16).replace('T', ' '),
-    expiresAt: inTenMinutes.toISOString().slice(0, 16).replace('T', ' '),
-  };
+    const newLoginCode: LoginCode = {
+      id: loginCodes.length + 1,
+      code,
+      tipo: tipoLoginSeleccionado,
+      status: 'VIGENTE',
+      createdAt: now.toISOString().slice(0, 16).replace('T', ' '),
+      expiresAt: inTenMinutes.toISOString().slice(0, 16).replace('T', ' '),
+    };
 
-  setLoginCodes((prev) => [newLoginCode, ...prev]);
+    setLoginCodes((prev) => [newLoginCode, ...prev]);
 
-  if (tipoLoginSeleccionado === 'QR_TOKEN') {
-    setQrActual(code);
-  }
+    if (tipoLoginSeleccionado === 'QR_TOKEN') {
+      setQrActual(code);
+    }
 
-  const tipoTexto =
-    tipoLoginSeleccionado === 'NUMERIC_CODE'
-      ? 'Código numérico'
-      : 'Token para QR';
+    const tipoTexto =
+      tipoLoginSeleccionado === 'NUMERIC_CODE' ? 'Código numérico' : 'Token para QR';
 
-  alert(
-    `Nuevo ${tipoTexto} generado para ${tripulante!.nombre}:\n\n` +
-      `Código/Token: ${code}\n` +
-      `Válido hasta: ${newLoginCode.expiresAt}\n\n` +
-      `Más adelante este botón llamará a la API real para generar el código y el QR.`
-  );
-}
-
-async function handleSuspenderDevice(device: CrewDevice) {
-  try {
-    setDevices((prev) =>
-      prev.map((d) =>
-        d.id === device.id ? { ...d, estado: 'SUSPENDIDO' } : d
-      )
+    alert(
+      `Nuevo ${tipoTexto} generado para ${tripulante?.nombre ?? ''}:\n\n` +
+        `Código/Token: ${code}\n` +
+        `Válido hasta: ${newLoginCode.expiresAt}\n\n` +
+        `Más adelante este botón llamará a la API real para generar el código y el QR.`
     );
-
-    await updateDeviceStatus(device.id, 'SUSPENDIDO');
-  } catch (err) {
-    console.error(err);
-    alert('Ocurrió un error al suspender el dispositivo.');
-  }
-}
-
-async function handleRevocarDevice(device: CrewDevice) {
-  if (
-    !window.confirm(
-      '¿Seguro que quieres revocar este dispositivo? El tripulante deberá volver a iniciar sesión con un nuevo código/QR.'
-    )
-  ) {
-    return;
   }
 
-  try {
-    setDevices((prev) =>
-      prev.map((d) =>
-        d.id === device.id ? { ...d, estado: 'REVOCADO' } : d
+  async function handleSuspenderDevice(device: CrewDevice) {
+    try {
+      setDevices((prev) => prev.map((d) => (d.id === device.id ? { ...d, estado: 'SUSPENDIDO' } : d)));
+      await updateDeviceStatus(device.id, 'SUSPENDIDO');
+    } catch (err) {
+      console.error(err);
+      alert('Ocurrió un error al suspender el dispositivo.');
+    }
+  }
+
+  async function handleRevocarDevice(device: CrewDevice) {
+    if (
+      !window.confirm(
+        '¿Seguro que quieres revocar este dispositivo? El tripulante deberá volver a iniciar sesión con un nuevo código/QR.'
       )
-    );
+    ) {
+      return;
+    }
 
-    await updateDeviceStatus(device.id, 'REVOCADO');
-  } catch (err) {
-    console.error(err);
-    alert('Ocurrió un error al revocar el dispositivo.');
+    try {
+      setDevices((prev) => prev.map((d) => (d.id === device.id ? { ...d, estado: 'REVOCADO' } : d)));
+      await updateDeviceStatus(device.id, 'REVOCADO');
+    } catch (err) {
+      console.error(err);
+      alert('Ocurrió un error al revocar el dispositivo.');
+    }
   }
-}
 
+  async function handleChangeEstado(newEstado: CrewStatus) {
+    if (!tripulante) return;
 
+    try {
+      setTripulante((prev) => (prev ? { ...prev, estado: newEstado } : prev));
+      await updateCrewMemberStatus(tripulante.id, newEstado);
 
-    if (loading) {
+      alert(
+        `Estado actualizado a ${newEstado.replace('_', ' ')}.\n\n` +
+          'Cuando el backend esté listo, este cambio se guardará en la base de datos.'
+      );
+    } catch (err) {
+      console.error(err);
+      alert('Ocurrió un error al intentar actualizar el estado en el backend.');
+    }
+  }
+
+  if (loading) {
     return (
       <div style={{ padding: 24 }}>
         <button
@@ -349,29 +386,6 @@ async function handleRevocarDevice(device: CrewDevice) {
     );
   }
 
-    // Cambiar estado del tripulante (solo frontend por ahora)
-    async function handleChangeEstado(newEstado: CrewStatus) {
-    if (!tripulante) return;
-
-    try {
-      // 1) Actualizamos visualmente en la UI
-      setTripulante((prev) => (prev ? { ...prev, estado: newEstado } : prev));
-
-      // 2) Llamamos al servicio (mock ahora, API real después)
-      await updateCrewMemberStatus(tripulante.id, newEstado);
-
-      alert(
-        `Estado actualizado a ${newEstado.replace('_', ' ')}.\n\n` +
-          'Cuando el backend esté listo, este cambio se guardará en la base de datos.'
-      );
-    } catch (err) {
-      console.error(err);
-      alert('Ocurrió un error al intentar actualizar el estado en el backend.');
-    }
-  }
-
-
-
   return (
     <div style={{ padding: 24 }}>
       <button
@@ -397,7 +411,16 @@ async function handleRevocarDevice(device: CrewDevice) {
           marginBottom: 24,
         }}
       >
-              <section
+        <div>
+          <h1 style={{ margin: 0 }}>{tripulante.nombre}</h1>
+          <p style={{ margin: 0, color: '#6b7280' }}>
+            {tripulante.rol} · Código {tripulante.codigo} · Base {tripulante.base}
+          </p>
+        </div>
+        <div>{renderEstado(tripulante.estado)}</div>
+      </header>
+
+      <section
         style={{
           marginBottom: 24,
           padding: 16,
@@ -408,8 +431,8 @@ async function handleRevocarDevice(device: CrewDevice) {
       >
         <h2 style={{ marginTop: 0, marginBottom: 8 }}>Gestión de estado del tripulante</h2>
         <p style={{ marginTop: 0, marginBottom: 12, color: '#6b7280', fontSize: 14 }}>
-          Como administrador puedes marcar al tripulante como activo, en baja temporal
-          o en baja definitiva. Más adelante este cambio se guardará en la base de datos.
+          Como administrador puedes marcar al tripulante como activo, en baja temporal o en baja
+          definitiva. Más adelante este cambio se guardará en la base de datos.
         </p>
 
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -466,16 +489,6 @@ async function handleRevocarDevice(device: CrewDevice) {
         </div>
       </section>
 
-
-        <div>
-          <h1 style={{ margin: 0 }}>{tripulante.nombre}</h1>
-          <p style={{ margin: 0, color: '#6b7280' }}>
-            {tripulante.rol} · Código {tripulante.codigo} · Base {tripulante.base}
-          </p>
-        </div>
-        <div>{renderEstado(tripulante.estado)}</div>
-      </header>
-
       <div
         style={{
           display: 'flex',
@@ -496,8 +509,7 @@ async function handleRevocarDevice(device: CrewDevice) {
             style={{
               padding: '8px 16px',
               border: 'none',
-              borderBottom:
-                activeTab === tab.key ? '2px solid #2563eb' : '2px solid transparent',
+              borderBottom: activeTab === tab.key ? '2px solid #2563eb' : '2px solid transparent',
               background: 'transparent',
               cursor: 'pointer',
               fontWeight: activeTab === tab.key ? 600 : 400,
@@ -510,14 +522,7 @@ async function handleRevocarDevice(device: CrewDevice) {
       </div>
 
       {activeTab === 'resumen' && (
-        <div
-          style={{
-            borderRadius: 12,
-            border: '1px solid #e5e7eb',
-            padding: 16,
-            background: 'white',
-          }}
-        >
+        <div style={{ borderRadius: 12, border: '1px solid #e5e7eb', padding: 16, background: 'white' }}>
           <h2 style={{ marginTop: 0 }}>Resumen del tripulante</h2>
           <ul>
             <li>Aquí más adelante mostraremos últimos vuelos asignados.</li>
@@ -528,173 +533,90 @@ async function handleRevocarDevice(device: CrewDevice) {
       )}
 
       {activeTab === 'dispositivos' && (
-        <div
-          style={{
-            borderRadius: 12,
-            border: '1px solid #e5e7eb',
-            padding: 16,
-            background: 'white',
-          }}
-        >
-          <div
-            style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              marginBottom: 12,
-            }}
-          >
-            <h2 style={{ margin: 0 }}>Dispositivos registrados</h2>
-            <button
-              type="button"
-              style={{
-                padding: '6px 12px',
-                borderRadius: 8,
-                border: '1px solid #d1d5db',
-                background: 'white',
-                cursor: 'pointer',
-                fontSize: 13,
-              }}
-              onClick={() => {
-                alert('Aquí luego podrás registrar manualmente un nuevo dispositivo.');
-              }}
-            >
-              + Registrar dispositivo
-            </button>
-          </div>
+        <div style={{ borderRadius: 12, border: '1px solid #e5e7eb', padding: 16, background: 'white' }}>
+          <h2 style={{ marginTop: 0 }}>Dispositivos registrados</h2>
 
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead style={{ background: '#f9fafb' }}>
               <tr>
-                <th style={{ textAlign: 'left', padding: '8px 12px', fontSize: 14 }}>
-                  Dispositivo
-                </th>
-                <th style={{ textAlign: 'left', padding: '8px 12px', fontSize: 14 }}>
-                  Estado
-                </th>
-                <th style={{ textAlign: 'left', padding: '8px 12px', fontSize: 14 }}>
-                  Registrado el
-                </th>
-                <th style={{ textAlign: 'right', padding: '8px 12px', fontSize: 14 }}>
-                  Acciones
-                </th>
+                <th style={{ textAlign: 'left', padding: '8px 12px', fontSize: 14 }}>Dispositivo</th>
+                <th style={{ textAlign: 'left', padding: '8px 12px', fontSize: 14 }}>Estado</th>
+                <th style={{ textAlign: 'left', padding: '8px 12px', fontSize: 14 }}>Registrado el</th>
+                <th style={{ textAlign: 'right', padding: '8px 12px', fontSize: 14 }}>Acciones</th>
               </tr>
             </thead>
-                 <tbody>
-                  {loadingDevices && (
-                    <tr>
-                      <td
-                        colSpan={4}
-                        style={{
-                          padding: '8px 12px',
-                          fontSize: 14,
-                          color: '#6b7280',
-                        }}
-                      >
-                        Cargando dispositivos...
-                      </td>
-                    </tr>
-                  )}
 
-                  {!loadingDevices && devices.length === 0 && (
-                    <tr>
-                      <td
-                        colSpan={4}
-                        style={{
-                          padding: '8px 12px',
-                          fontSize: 14,
-                          color: '#6b7280',
-                        }}
-                      >
-                        Este tripulante todavía no tiene dispositivos registrados.
-                      </td>
-                    </tr>
-                  )}
+            <tbody>
+              {loadingDevices && (
+                <tr>
+                  <td colSpan={4} style={{ padding: '8px 12px', fontSize: 14, color: '#6b7280' }}>
+                    Cargando dispositivos...
+                  </td>
+                </tr>
+              )}
 
-                  {devices.map((d) => (
-                    <tr key={d.id} style={{ borderTop: '1px solid #e5e7eb' }}>
-                      <td style={{ padding: '8px 12px', fontSize: 14 }}>{d.nombre}</td>
-                      <td style={{ padding: '8px 12px', fontSize: 14 }}>
-                        {renderEstadoDispositivo(d.estado)}
-                      </td>
-                      <td style={{ padding: '8px 12px', fontSize: 14 }}>{d.registradoEl}</td>
-                      <td style={{ padding: '8px 12px', textAlign: 'right' }}>
-                        <button
-                          type="button"
-                          style={{
-                            padding: '4px 8px',
-                            borderRadius: 8,
-                            border: '1px solid #d1d5db',
-                            background: 'white',
-                            cursor: 'pointer',
-                            fontSize: 12,
-                            marginRight: 8,
-                          }}
-                          onClick={() => handleSuspenderDevice(d)}
-                        >
-                          Suspender
-                        </button>
-                        <button
-                          type="button"
-                          style={{
-                            padding: '4px 8px',
-                            borderRadius: 8,
-                            border: '1px solid #fecaca',
-                            background: '#fee2e2',
-                            cursor: 'pointer',
-                            fontSize: 12,
-                          }}
-                          onClick={() => handleRevocarDevice(d)}
-                        >
-                          Revocar
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
+              {!loadingDevices && devices.length === 0 && (
+                <tr>
+                  <td colSpan={4} style={{ padding: '8px 12px', fontSize: 14, color: '#6b7280' }}>
+                    Este tripulante todavía no tiene dispositivos registrados.
+                  </td>
+                </tr>
+              )}
 
+              {devices.map((d) => (
+                <tr key={d.id} style={{ borderTop: '1px solid #e5e7eb' }}>
+                  <td style={{ padding: '8px 12px', fontSize: 14 }}>{d.nombre}</td>
+                  <td style={{ padding: '8px 12px', fontSize: 14 }}>{renderEstadoDispositivo(d.estado)}</td>
+                  <td style={{ padding: '8px 12px', fontSize: 14 }}>{d.registradoEl}</td>
+                  <td style={{ padding: '8px 12px', textAlign: 'right' }}>
+                    <button
+                      type="button"
+                      style={{
+                        padding: '4px 8px',
+                        borderRadius: 8,
+                        border: '1px solid #d1d5db',
+                        background: 'white',
+                        cursor: 'pointer',
+                        fontSize: 12,
+                        marginRight: 8,
+                      }}
+                      onClick={() => handleSuspenderDevice(d)}
+                    >
+                      Suspender
+                    </button>
+                    <button
+                      type="button"
+                      style={{
+                        padding: '4px 8px',
+                        borderRadius: 8,
+                        border: '1px solid #fecaca',
+                        background: '#fee2e2',
+                        cursor: 'pointer',
+                        fontSize: 12,
+                      }}
+                      onClick={() => handleRevocarDevice(d)}
+                    >
+                      Revocar
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
           </table>
         </div>
       )}
 
-            {activeTab === 'accesos' && (
-        <div
-          style={{
-            borderRadius: 12,
-            border: '1px solid #e5e7eb',
-            padding: 16,
-            background: 'white',
-          }}
-        >
+      {activeTab === 'accesos' && (
+        <div style={{ borderRadius: 12, border: '1px solid #e5e7eb', padding: 16, background: 'white' }}>
           <h2 style={{ marginTop: 0, marginBottom: 8 }}>Accesos mediante código / QR</h2>
-          <p style={{ color: '#6b7280', fontSize: 14, marginTop: 0 }}>
-            El administrador puede generar códigos de acceso temporales para que el tripulante
-            inicie sesión en la app móvil desde un nuevo dispositivo.
-          </p>
 
-          {/* Selector de tipo + botón generar */}
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 12,
-              marginBottom: 16,
-              flexWrap: 'wrap',
-            }}
-          >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
             <div>
               <label style={{ fontSize: 13, marginRight: 8 }}>Tipo de acceso:</label>
               <select
                 value={tipoLoginSeleccionado}
-                onChange={(e) =>
-                  setTipoLoginSeleccionado(e.target.value as LoginCodeType)
-                }
-                style={{
-                  padding: '6px 8px',
-                  borderRadius: 8,
-                  border: '1px solid #d1d5db',
-                  fontSize: 13,
-                }}
+                onChange={(e) => setTipoLoginSeleccionado(e.target.value as LoginCodeType)}
+                style={{ padding: '6px 8px', borderRadius: 8, border: '1px solid #d1d5db', fontSize: 13 }}
               >
                 <option value="NUMERIC_CODE">Código numérico</option>
                 <option value="QR_TOKEN">Token para QR</option>
@@ -719,22 +641,15 @@ async function handleRevocarDevice(device: CrewDevice) {
             </button>
           </div>
 
-          {/* Tabla de accesos */}
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead style={{ background: '#f9fafb' }}>
               <tr>
                 <th style={{ textAlign: 'left', padding: '8px 12px', fontSize: 14 }}>Código</th>
                 <th style={{ textAlign: 'left', padding: '8px 12px', fontSize: 14 }}>Tipo</th>
                 <th style={{ textAlign: 'left', padding: '8px 12px', fontSize: 14 }}>Estado</th>
-                <th style={{ textAlign: 'left', padding: '8px 12px', fontSize: 14 }}>
-                  Creado el
-                </th>
-                <th style={{ textAlign: 'left', padding: '8px 12px', fontSize: 14 }}>
-                  Expira el
-                </th>
-                <th style={{ textAlign: 'right', padding: '8px 12px', fontSize: 14 }}>
-                  QR / Ver
-                </th>
+                <th style={{ textAlign: 'left', padding: '8px 12px', fontSize: 14 }}>Creado el</th>
+                <th style={{ textAlign: 'left', padding: '8px 12px', fontSize: 14 }}>Expira el</th>
+                <th style={{ textAlign: 'right', padding: '8px 12px', fontSize: 14 }}>QR / Ver</th>
               </tr>
             </thead>
             <tbody>
@@ -744,53 +659,34 @@ async function handleRevocarDevice(device: CrewDevice) {
                   <td style={{ padding: '8px 12px', fontSize: 14 }}>
                     {c.tipo === 'NUMERIC_CODE' ? 'Código numérico' : 'Token QR'}
                   </td>
-                  <td style={{ padding: '8px 12px', fontSize: 14 }}>
-                    {renderLoginStatus(c.status)}
-                  </td>
+                  <td style={{ padding: '8px 12px', fontSize: 14 }}>{renderLoginStatus(c.status)}</td>
                   <td style={{ padding: '8px 12px', fontSize: 14 }}>{c.createdAt}</td>
                   <td style={{ padding: '8px 12px', fontSize: 14 }}>{c.expiresAt}</td>
                   <td style={{ padding: '8px 12px', fontSize: 14, textAlign: 'right' }}>
-                      {c.tipo === 'QR_TOKEN' ? (
-                        <button
-                          type="button"
-                          style={{
-                            padding: '4px 8px',
-                            borderRadius: 8,
-                            border: '1px solid #d1d5db',
-                            background: 'white',
-                            cursor: 'pointer',
-                            fontSize: 12,
-                          }}
-                          onClick={() => setQrActual(c.code)}
-                        >
-                          Ver QR
-                        </button>
-                      ) : (
-                        <span style={{ fontSize: 12, color: '#6b7280' }}>No aplica</span>
-                      )}
-                    </td>
-
-                </tr>
-              ))}
-
-              {loginCodes.length === 0 && (
-                <tr>
-                  <td
-                    colSpan={6}
-                    style={{
-                      padding: '12px 16px',
-                      textAlign: 'center',
-                      color: '#6b7280',
-                    }}
-                  >
-                    Todavía no se han generado códigos de acceso para este tripulante.
+                    {c.tipo === 'QR_TOKEN' ? (
+                      <button
+                        type="button"
+                        style={{
+                          padding: '4px 8px',
+                          borderRadius: 8,
+                          border: '1px solid #d1d5db',
+                          background: 'white',
+                          cursor: 'pointer',
+                          fontSize: 12,
+                        }}
+                        onClick={() => setQrActual(c.code)}
+                      >
+                        Ver QR
+                      </button>
+                    ) : (
+                      <span style={{ fontSize: 12, color: '#6b7280' }}>No aplica</span>
+                    )}
                   </td>
                 </tr>
-              )}
+              ))}
             </tbody>
           </table>
 
-          {/* Bloque que muestra el QR cuando hay uno seleccionado */}
           {qrActual && (
             <div
               style={{
@@ -805,32 +701,38 @@ async function handleRevocarDevice(device: CrewDevice) {
               <h3 style={{ marginTop: 0, marginBottom: 8, fontSize: 16 }}>
                 QR de acceso para {tripulante.nombre}
               </h3>
-              <p
-                style={{
-                  marginTop: 0,
-                  marginBottom: 8,
-                  fontSize: 13,
-                  color: '#6b7280',
-                }}
-              >
-                Escanéalo desde la app móvil de tripulantes para iniciar sesión en un nuevo
-                dispositivo. Este QR representa el token:
+
+              <p style={{ marginTop: 0, marginBottom: 8, fontSize: 13, color: '#6b7280' }}>
+                Escanéalo desde la app móvil de tripulantes para iniciar sesión en un nuevo dispositivo.
+                Este QR representa el token:
                 <br />
                 <span style={{ fontFamily: 'monospace' }}>{qrActual}</span>
               </p>
 
               <div
-                style={{
-                  padding: 12,
-                  borderRadius: 12,
-                  background: 'white',
-                  display: 'inline-block',
-                }}
+                ref={qrContainerRef}
+                style={{ padding: 12, borderRadius: 12, background: 'white', display: 'inline-block' }}
               >
                 <QRCode value={qrActual} size={160} />
               </div>
 
-              <div style={{ marginTop: 12, textAlign: 'right' }}>
+              <div style={{ marginTop: 12, display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+                <button
+                  type="button"
+                  onClick={handleDownloadQrPng}
+                  style={{
+                    padding: '6px 10px',
+                    borderRadius: 8,
+                    border: '1px solid #d1d5db',
+                    background: 'white',
+                    cursor: 'pointer',
+                    fontSize: 12,
+                    fontWeight: 600,
+                  }}
+                >
+                  Descargar QR
+                </button>
+
                 <button
                   type="button"
                   onClick={() => setQrActual(null)}
@@ -848,7 +750,6 @@ async function handleRevocarDevice(device: CrewDevice) {
               </div>
             </div>
           )}
-
         </div>
       )}
     </div>

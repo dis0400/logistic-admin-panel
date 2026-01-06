@@ -1,4 +1,108 @@
+/* Tipografía y reset básico */
 body {
   margin: 0;
   font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: #f3f4f6;
 }
+
+/* ====== LAYOUT GENERAL DEL PANEL ====== */
+
+.app-shell {
+  display: flex;
+  min-height: 100vh;
+}
+
+/* Sidebar lateral */
+.app-sidebar {
+  width: 260px;
+  background: #1d4ed8; /* azul */
+  color: white;
+  flex-shrink: 0;
+}
+
+/* Área principal */
+.app-main {
+  flex: 1;
+  background: #f3f4f6;
+  padding: 24px;
+  box-sizing: border-box;
+}
+
+/* Contenedor interno del main para limitar ancho en desktop */
+.app-main-inner {
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+/* Las tarjetas del dashboard (si las usas como grid) */
+.dashboard-cards {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.dashboard-card {
+  flex: 1 1 280px;
+  min-width: 260px;
+}
+
+/* Tablas en general: contenedor responsive */
+.table-responsive {
+  width: 100%;
+  overflow-x: auto;
+}
+
+/* ====== RESPONSIVE ====== */
+
+/* Tablets y móviles */
+@media (max-width: 900px) {
+  .app-shell {
+    flex-direction: column;            /* sidebar arriba, contenido abajo */
+  }
+
+  .app-sidebar {
+    width: 100%;
+  }
+
+  .app-main {
+    padding: 16px;
+  }
+}
+
+/* Móviles pequeños */
+@media (max-width: 600px) {
+  .app-main-inner {
+    max-width: 100%;
+  }
+
+  .dashboard-card {
+    flex: 1 1 100%;                    /* tarjetas a una sola columna */
+  }
+}
+
+/* Contenedor genérico para páginas de admin */
+.page-container {
+  padding: 24px;
+  max-width: 1100px;
+  margin: 0 auto;
+}
+
+/* Wrapper para tablas en pantallas pequeñas */
+.table-responsive {
+  width: 100%;
+  overflow-x: auto;
+}
+
+/* Ajustes para pantallas pequeñas (tablets / móviles) */
+@media (max-width: 768px) {
+  .page-container {
+    padding: 16px;
+  }
+
+  .table-responsive table th,
+  .table-responsive table td {
+    padding: 6px 8px;
+    font-size: 12px;
+  }
+}
+
